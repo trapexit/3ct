@@ -1,0 +1,8 @@
+#pragma once
+
+#define COMP_ERR_BADPTR -1
+#define COMP_ERR_BADTAG -2
+#define COMP_ERR_NOMEM  -3
+#define COMP_ERR_DATAREMAINS -4
+#define COMP_ERR_DATAMISSING -5
+#define COMP_ERR_OVERFLOW -6
