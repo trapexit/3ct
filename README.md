@@ -49,13 +49,80 @@ $ 3ct check
 * output of 3ct decompressor matches SDK
 ```
 
-# TODOs
+## TODOs
 
 * Reverse engineer Game Guru compression format and add to 3ct
 * Rework and modernize compression code
 
 
-# Documentation
+## Algorithm
+
+The 3DO SDK compression algorithm is based on [LZSS
+(Lempel–Ziv–Storer–Szymanski)](https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Storer%E2%80%93Szymanski). An
+LZ77-style dictionary-based algorithm optimized for the 3DO platform
+which replaces repeated byte sequences with back-references into a
+sliding window, whilee emitting novel bytes as literals.
+
+
+### Algorithm Details
+
+* **type:** Dictionary-based lossless compression (LZ77-style)
+* **data structure:** Binary search tree for fast string matching
+* **sliding window:** 4096 bytes (2^12)
+  * 12-bit index for window position references
+  * Window maintains previously seen data for pattern matching
+* **look-ahead buffer:** 18 bytes (2^4 + 2)
+  * 4-bit length field encoding phase lengths of 2-18 bytes
+  * Allows efficient encoding of repeated sequences
+* **break-even point:** 2 bytes (minimum phrase length is 3 bytes)
+  * Phrases shorter than 3 bytes are stored as literal bytes instead
+  
+### Encoding Format
+
+Each token in the compressed stream is prefixed with a header bit:
+
+* **header bit = 1:** Literal byte (1 bit + 8 data bits, 9 total.)
+  Emitted when no match longer than 2 bytes (`BREAK_EVEN`) is found.
+* **header bit = 0:** Phrase reference (1 bit + 12-bit index + 4-bit
+  length, 17 total.) The length field stores `match_length >= 3`,
+  encoding match lengths from 3 to 18 bytes.
+* **end of stream:** header bit = 0 followed by position = 0
+  (`END_OF_STREAM`), signaling the decompressor that no more data
+  follows.
+
+The phrase reference encodes:
+* **position:** 12-bit index into the sliding window (0 - 4095)
+* **length:** 4-bit value representing match length minus 3 (0 - 15,
+  corresponding to 3 - 18 bytes)
+  
+
+### String Matching
+
+The compressor maintains a binary search tree (BST) over all
+substrings in the sliding window for efficient longest-match
+lookup. Each node stores parent, left-child, and right-child
+indices. When a maxium-lenght match (18 bytes) is found, the new node
+replaces the matched node in the tree. Strings are deleted from the
+tree as they slide out of the window.
+
+### Data Format
+
+* Input and output are word-oriented (32-bit words)
+* The bitstream is packed into 32-bit words in big-endian byte order,
+  matching the 3DO's big-endian ARM60 processor. On little-endian
+  hosts the words are byte-swapped.
+
+
+### Streaming API
+
+The compressor and decompressor support incremental (streaming)
+operation. Data is fed in chunks via `FeedCompressor` or
+`FeedDecompressor`; internal state (window position, BST, partial
+bit-buffer) is preserved between calls. Convienece wrappers handle
+one-shot operation.
+
+
+## Documentation
 
 * https://3dodev.com
 * https://3dodev.com/documentation/development/opera/pf25/ppgfldr/pgsfldr/spg/14spg
@@ -63,7 +130,7 @@ $ 3ct check
 * https://github.com/trapexit/portfolio_os_m2/tree/master/ws_root/src/tools/decomp3do
 
 
-# Donations / Sponsorship
+## Donations / Sponsorship
 
 If you find 3ct useful please consider supporting its ongoing development.
 
