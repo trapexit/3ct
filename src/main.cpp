@@ -5,6 +5,8 @@
 #include "subcmd_check.hpp"
 #include "subcmd_compress.hpp"
 #include "subcmd_decompress.hpp"
+#include "subcmd_ggc_compress.hpp"
+#include "subcmd_ggc_decompress.hpp"
 #include "version.hpp"
 
 #include <unistd.h>
@@ -61,6 +63,53 @@ generate_decompress_argparser(CLI::App &app_,
 
 static
 void
+generate_ggc_compress_argparser(CLI::App &app_,
+                                Options  &opts_)
+{
+  CLI::App *subcmd;
+
+  subcmd = app_.add_subcommand("ggc-compress","Compress input file as Game Guru .COMP");
+  subcmd->add_option("input-filepath",opts_.input_filepath)
+    ->description("Path to input file")
+    ->type_name("PATH")
+    ->check(CLI::ExistingFile)
+    ->required();
+  subcmd->add_option("output-filepath",opts_.output_filepath)
+    ->description("Path to output file (default: input + '.COMP')")
+    ->type_name("PATH")
+    ->option_text("PATH:FILE");
+  subcmd->add_option("--file-type",opts_.ggc_file_type)
+    ->description("4-byte 3DO filesystem file type for byte-exact headers")
+    ->type_name("TEXT");
+
+  auto func = std::bind(SubCmd::ggc_compress,std::cref(opts_));
+  subcmd->callback(func);
+}
+
+static
+void
+generate_ggc_decompress_argparser(CLI::App &app_,
+                                  Options  &opts_)
+{
+  CLI::App *subcmd;
+
+  subcmd = app_.add_subcommand("ggc-decompress","Decompress Game Guru .COMP input file");
+  subcmd->add_option("input-filepath",opts_.input_filepath)
+    ->description("Path to input file")
+    ->type_name("PATH")
+    ->check(CLI::ExistingFile)
+    ->required();
+  subcmd->add_option("output-filepath",opts_.output_filepath)
+    ->description("Path to output file (default: input + '.decompressed')")
+    ->type_name("PATH")
+    ->option_text("PATH:FILE");
+
+  auto func = std::bind(SubCmd::ggc_decompress,std::cref(opts_));
+  subcmd->callback(func);
+}
+
+static
+void
 generate_check_argparser(CLI::App &app_,
                          Options  &opts_)
 {
@@ -91,6 +140,8 @@ generate_argparser(CLI::App &app_,
 
   generate_compress_argparser(app_,opts_);
   generate_decompress_argparser(app_,opts_);
+  generate_ggc_compress_argparser(app_,opts_);
+  generate_ggc_decompress_argparser(app_,opts_);
   generate_check_argparser(app_,opts_);
 }
 
