@@ -31,8 +31,6 @@
 #define COMP_TRUE        1
 #define COMP_FALSE       0
 
-typedef signed int int32_t;
-typedef unsigned int uint32_t;
 typedef unsigned char uint8_t;
 
 /*
@@ -41,19 +39,17 @@ typedef unsigned char uint8_t;
  */
 typedef struct CompNode
 {
-  uint32_t cn_Parent;
-  uint32_t cn_LeftChild;
-  uint32_t cn_RightChild;
+  CompUInt32 cn_Parent;
+  CompUInt32 cn_LeftChild;
+  CompUInt32 cn_RightChild;
 } CompNode;
-
-typedef void (*CompFuncClone)(void *userData, uint32_t word);
 
 typedef struct CompressBitStream
 {
-  CompFuncClone  bs_OutputWord;
+  CompFunc       bs_OutputWord;
   void          *bs_UserData;
-  uint32_t       bs_BitsLeft;
-  uint32_t       bs_BitBuffer;
+  CompUInt32     bs_BitsLeft;
+  CompUInt32     bs_BitBuffer;
 } CompressBitStream;
 
 
@@ -64,11 +60,11 @@ struct Compressor
 {
   unsigned char      ch_Window[WINDOW_SIZE];
   CompNode           ch_Tree[WINDOW_SIZE + 1];
-  int32_t            ch_LookAhead;
-  int32_t            ch_MatchLen;
-  uint32_t           ch_MatchPos;
-  uint32_t           ch_CurrentPos;
-  uint32_t           ch_ReplaceCnt;
+  CompInt32          ch_LookAhead;
+  CompInt32          ch_MatchLen;
+  CompUInt32         ch_MatchPos;
+  CompUInt32         ch_CurrentPos;
+  CompUInt32         ch_ReplaceCnt;
   CompressBitStream  ch_BitStream;
   int                ch_SecondPass;
   int                ch_AllocatedStructure;
@@ -79,8 +75,8 @@ struct Compressor
 /*****************************************************************************/
 
 static
-uint32_t
-Byteswap32(uint32_t v)
+CompUInt32
+Byteswap32(CompUInt32 v)
 {
   return (((v & 0x000000FFU) << 24) |
           ((v & 0x0000FF00U) <<  8) |
@@ -94,8 +90,8 @@ IsLittleEndian(void)
 {
   union
   {
-    uint32_t i;
-    char c[sizeof(uint32_t)];
+    CompUInt32 i;
+    char c[sizeof(CompUInt32)];
   } u;
 
   u.i = 0x01020304U;
@@ -104,8 +100,8 @@ IsLittleEndian(void)
 }
 
 static
-uint32_t
-ByteswapIfLittleEndian(uint32_t v)
+CompUInt32
+ByteswapIfLittleEndian(CompUInt32 v)
 {
   if(IsLittleEndian())
     return Byteswap32(v);
@@ -123,20 +119,21 @@ ByteswapIfLittleEndian(uint32_t v)
  */
 
 static
-uint32_t
+CompUInt32
 AddString(CompNode      *tree,
           unsigned char *window,
-          uint32_t       newNode,
-          uint32_t      *matchPos)
+          CompUInt32     newNode,
+          CompUInt32    *matchPos)
 {
-  uint32_t  i;
-  uint32_t  testNode;
-  uint32_t  parentNode;
-  int32_t   delta;
-  uint32_t  matchLen;
-  CompNode *node;
-  CompNode *parent;
-  CompNode *test;
+  CompUInt32  i;
+  CompUInt32  testNode;
+  CompUInt32  parentNode;
+  CompInt32   delta;
+  CompUInt32  matchLen;
+  CompNode   *node;
+  CompNode   *parent;
+  CompNode   *test;
+  CompUInt32 *child;
 
   if(newNode == END_OF_STREAM)
     return (0);
@@ -180,36 +177,27 @@ AddString(CompNode      *tree,
         }
 
       if(delta >= 0)
-        {
-          if(test->cn_RightChild == UNUSED)
-            {
-              test->cn_RightChild = newNode;
-              node->cn_Parent     = testNode;
-              node->cn_LeftChild  = UNUSED;
-              node->cn_RightChild = UNUSED;
-              return (matchLen);
-            }
-          testNode = test->cn_RightChild;
-        }
+        child = &test->cn_RightChild;
       else
+        child = &test->cn_LeftChild;
+
+      if(*child == UNUSED)
         {
-          if(test->cn_LeftChild == UNUSED)
-            {
-              test->cn_LeftChild  = newNode;
-              node->cn_Parent     = testNode;
-              node->cn_LeftChild  = UNUSED;
-              node->cn_RightChild = UNUSED;
-              return (matchLen);
-            }
-          testNode = test->cn_LeftChild;
+          *child              = newNode;
+          node->cn_Parent     = testNode;
+          node->cn_LeftChild  = UNUSED;
+          node->cn_RightChild = UNUSED;
+          return (matchLen);
         }
+
+      testNode = *child;
     }
 }
 
 static
 void
 InitBitStream(CompressBitStream *bs,
-              CompFuncClone      cf,
+              CompFunc           cf,
               void              *userData)
 {
   bs->bs_OutputWord = cf;
@@ -231,9 +219,9 @@ CleanupBitStream(CompressBitStream *bs)
 static
 void
 WriteBits(CompressBitStream *bs,
-          uint32_t           headBit,
-          uint32_t           code,
-          uint32_t           numBits)
+          CompUInt32         headBit,
+          CompUInt32         code,
+          CompUInt32         numBits)
 {
   bs->bs_BitsLeft--;
   bs->bs_BitBuffer |= (headBit << bs->bs_BitsLeft);
@@ -267,59 +255,87 @@ WriteBits(CompressBitStream *bs,
 static
 void
 DeleteString(CompNode *tree,
-             uint32_t  node)
+             CompUInt32 node)
 {
-  uint32_t parent;
-  uint32_t newNode;
-  uint32_t next;
+  CompUInt32 parent;
+  CompUInt32 newNode;
+  CompUInt32 next;
 
   parent = tree[node].cn_Parent;
-  if(parent != UNUSED)
+  if(parent == UNUSED)
+    return;
+
+  if(tree[node].cn_LeftChild == UNUSED)
     {
-      if(tree[node].cn_LeftChild == UNUSED)
+      newNode                 = tree[node].cn_RightChild;
+      tree[newNode].cn_Parent = parent;
+    }
+  else if(tree[node].cn_RightChild == UNUSED)
+    {
+      newNode                 = tree[node].cn_LeftChild;
+      tree[newNode].cn_Parent = parent;
+    }
+  else
+    {
+      newNode = tree[node].cn_LeftChild;
+      next    = tree[newNode].cn_RightChild;
+      if(next != UNUSED)
         {
-          newNode                 = tree[node].cn_RightChild;
-          tree[newNode].cn_Parent = parent;
-        }
-      else if(tree[node].cn_RightChild == UNUSED)
-        {
-          newNode                 = tree[node].cn_LeftChild;
-          tree[newNode].cn_Parent = parent;
+          do
+            {
+              newNode = next;
+              next    = tree[newNode].cn_RightChild;
+            }
+          while(next != UNUSED);
+
+          tree[tree[newNode].cn_Parent].cn_RightChild = UNUSED;
+          tree[newNode].cn_Parent                     = tree[node].cn_Parent;
+          tree[newNode].cn_LeftChild                  = tree[node].cn_LeftChild;
+          tree[newNode].cn_RightChild                 = tree[node].cn_RightChild;
+          tree[tree[newNode].cn_LeftChild].cn_Parent  = newNode;
+          tree[tree[newNode].cn_RightChild].cn_Parent = newNode;
         }
       else
         {
-          newNode = tree[node].cn_LeftChild;
-          next    = tree[newNode].cn_RightChild;
-          if(next != UNUSED)
-            {
-              do
-                {
-                  newNode = next;
-                  next    = tree[newNode].cn_RightChild;
-                }
-              while(next != UNUSED);
-
-              tree[tree[newNode].cn_Parent].cn_RightChild = UNUSED;
-              tree[newNode].cn_Parent                     = tree[node].cn_Parent;
-              tree[newNode].cn_LeftChild                  = tree[node].cn_LeftChild;
-              tree[newNode].cn_RightChild                 = tree[node].cn_RightChild;
-              tree[tree[newNode].cn_LeftChild].cn_Parent  = newNode;
-              tree[tree[newNode].cn_RightChild].cn_Parent = newNode;
-            }
-          else
-            {
-              tree[newNode].cn_Parent                     = parent;
-              tree[newNode].cn_RightChild                 = tree[node].cn_RightChild;
-              tree[tree[newNode].cn_RightChild].cn_Parent = newNode;
-            }
+          tree[newNode].cn_Parent                     = parent;
+          tree[newNode].cn_RightChild                 = tree[node].cn_RightChild;
+          tree[tree[newNode].cn_RightChild].cn_Parent = newNode;
         }
+    }
 
-      if(tree[parent].cn_LeftChild == node)
-        tree[parent].cn_LeftChild = newNode;
-      else
-        tree[parent].cn_RightChild = newNode;
+  if(tree[parent].cn_LeftChild == node)
+    tree[parent].cn_LeftChild = newNode;
+  else
+    tree[parent].cn_RightChild = newNode;
 
-      tree[node].cn_Parent = UNUSED;
+  tree[node].cn_Parent = UNUSED;
+}
+
+static
+void
+WriteNextToken(CompressBitStream *bs,
+               unsigned char     *window,
+               CompUInt32         currentPos,
+               CompInt32         *matchLen,
+               CompInt32          lookAhead,
+               CompUInt32         matchPos,
+               CompUInt32        *replaceCnt)
+{
+  CompUInt32 temp;
+
+  if(*matchLen > lookAhead)
+    *matchLen = lookAhead;
+
+  if(*matchLen <= BREAK_EVEN)
+    {
+      WriteBits(bs, 1, (CompUInt32) window[currentPos], 8);
+      *replaceCnt = 1;
+    }
+  else
+    {
+      temp = (matchPos << LENGTH_BIT_COUNT) | (*matchLen - (BREAK_EVEN + 1));
+      WriteBits(bs, 0, temp, INDEX_BIT_COUNT + LENGTH_BIT_COUNT);
+      *replaceCnt = *matchLen;
     }
 }
 
@@ -380,15 +396,14 @@ static
 void
 FlushCompressor(Compressor *comp)
 {
-  int32_t            lookAhead;
-  uint32_t           currentPos;
-  uint32_t           replaceCnt;
-  int32_t            matchLen;
-  uint32_t           matchPos;
+  CompInt32          lookAhead;
+  CompUInt32         currentPos;
+  CompUInt32         replaceCnt;
+  CompInt32          matchLen;
+  CompUInt32         matchPos;
   CompNode          *tree;
   unsigned char     *window;
   CompressBitStream *bs;
-  uint32_t           temp;
 
   tree         = comp->ch_Tree;
   window       = comp->ch_Window;
@@ -399,31 +414,25 @@ FlushCompressor(Compressor *comp)
   matchPos     = comp->ch_MatchPos;
   replaceCnt   = comp->ch_ReplaceCnt;
 
+  /* Continue inside the replacement loop if the previous feed ran out of data. */
   if(comp->ch_SecondPass)
-    goto newData;
+    goto resume_replacement;
 
   while(lookAhead >= 0)
     {
-      if(matchLen > lookAhead)
-        matchLen = lookAhead;
-
-      if(matchLen <= BREAK_EVEN)
-        {
-          WriteBits(bs, 1, (uint32_t) window[currentPos], 8);
-          replaceCnt = 1;
-        }
-      else
-        {
-          temp = (matchPos << LENGTH_BIT_COUNT) | (matchLen - (BREAK_EVEN + 1));
-          WriteBits(bs, 0, temp, INDEX_BIT_COUNT + LENGTH_BIT_COUNT);
-          replaceCnt = matchLen;
-        }
+      WriteNextToken(bs,
+                     window,
+                     currentPos,
+                     &matchLen,
+                     lookAhead,
+                     matchPos,
+                     &replaceCnt);
 
       while(replaceCnt--)
         {
           DeleteString(tree, MOD_WINDOW(currentPos + LOOK_AHEAD_SIZE));
           lookAhead--;
-        newData:
+        resume_replacement:
           currentPos = MOD_WINDOW(currentPos + 1);
 
           if(lookAhead)
@@ -464,19 +473,18 @@ DeleteCompressor(Compressor *comp)
 int
 FeedCompressor(Compressor *comp,
                void       *data,
-               unsigned int numDataWords)
+               CompUInt32  numDataWords)
 {
-  int32_t            lookAhead;
-  uint32_t           currentPos;
-  uint32_t           replaceCnt;
-  int32_t            matchLen;
-  uint32_t           matchPos;
+  CompInt32          lookAhead;
+  CompUInt32         currentPos;
+  CompUInt32         replaceCnt;
+  CompInt32          matchLen;
+  CompUInt32         matchPos;
   uint8_t           *src;
   CompNode          *tree;
   unsigned char     *window;
   CompressBitStream *bs;
-  uint32_t           numDataBytes;
-  uint32_t           temp;
+  CompUInt32         numDataBytes;
 
   if(!comp || (comp->ch_Cookie != comp))
     return (COMP_ERR_BADPTR);
@@ -489,14 +497,15 @@ FeedCompressor(Compressor *comp,
   matchLen     = comp->ch_MatchLen;
   matchPos     = comp->ch_MatchPos;
   replaceCnt   = comp->ch_ReplaceCnt;
-  numDataBytes = numDataWords * sizeof(uint32_t);
+  numDataBytes = numDataWords * sizeof(CompUInt32);
   src          = (uint8_t*)data;
 
   if(!numDataBytes)
     return (0);
 
+  /* Continue inside the replacement loop if the previous feed ran out of data. */
   if(comp->ch_SecondPass)
-    goto newData;
+    goto resume_replacement;
 
   while(lookAhead <= LOOK_AHEAD_SIZE)
     {
@@ -513,20 +522,13 @@ FeedCompressor(Compressor *comp,
   lookAhead--;
   for(;;)
     {
-      if(matchLen > lookAhead)
-        matchLen = lookAhead;
-
-      if(matchLen <= BREAK_EVEN)
-        {
-          WriteBits(bs, 1, (uint32_t) window[currentPos], 8);
-          replaceCnt = 1;
-        }
-      else
-        {
-          temp = (matchPos << LENGTH_BIT_COUNT) | (matchLen - (BREAK_EVEN + 1));
-          WriteBits(bs, 0, temp, INDEX_BIT_COUNT + LENGTH_BIT_COUNT);
-          replaceCnt = matchLen;
-        }
+      WriteNextToken(bs,
+                     window,
+                     currentPos,
+                     &matchLen,
+                     lookAhead,
+                     matchPos,
+                     &replaceCnt);
 
       while(replaceCnt--)
         {
@@ -547,7 +549,7 @@ FeedCompressor(Compressor *comp,
               comp->ch_SecondPass = COMP_TRUE;
               return (0);
             }
-        newData:
+        resume_replacement:
           window[MOD_WINDOW(currentPos + LOOK_AHEAD_SIZE)] = *src++;
           numDataBytes--;
 
@@ -561,15 +563,15 @@ FeedCompressor(Compressor *comp,
 
 typedef struct Context
 {
-  uint32_t *dest;
-  uint32_t *max;
-  int       overflow;
+  CompUInt32 *dest;
+  CompUInt32 *max;
+  int         overflow;
 } Context;
 
 static
 void
 PutWord(void     *ctx__,
-        uint32_t  word_)
+        CompUInt32 word_)
 {
   Context *ctx_;
 
@@ -589,15 +591,15 @@ GetCompressorWorkBufferSize(void)
 
 int
 SimpleCompress(void         *source_,
-               unsigned int  sourceWords_,
+               CompUInt32    sourceWords_,
                void         *result_,
-               unsigned int  resultWords_)
+               CompUInt32    resultWords_)
 {
   int err;
   Compressor *comp;
   Context ctx;
 
-  ctx.dest = (uint32_t*)result_;
+  ctx.dest = (CompUInt32*)result_;
   ctx.max  = ctx.dest + resultWords_;
   ctx.overflow = COMP_FALSE;
 
@@ -613,7 +615,7 @@ SimpleCompress(void         *source_,
       if(ctx.overflow)
         err = COMP_ERR_OVERFLOW;
       else
-        err = ctx.dest - (uint32_t*)result_;
+        err = ctx.dest - (CompUInt32*)result_;
     }
 
   return err;
