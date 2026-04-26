@@ -343,7 +343,7 @@ cmp /tmp/POed.AA.COMP nvram.0.srm.unpacked/POed.AA.COMP
 ```
 
 `CasperSave1` can infer `NVRT` from its first four bytes. `POed.A`
-needs `--file-type " "` because its original 3DO filesystem type is
+needs `--file-type "    "` because its original 3DO filesystem type is
 four spaces, while its first four file bytes are binary zeroes.
 
 

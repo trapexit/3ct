@@ -1,40 +1,50 @@
-#include "byteswap.hpp"
-#include "errors.hpp"
-#include "lzss.h"
-#include "types.hpp"
+#include "compress.h"
 
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 
 /*****************************************************************************/
 
 
-/* This is the compression module which implements an LZ77-style (LZSS)
+/*
+ * This is the compression module which implements an LZ77-style (LZSS)
  * compression algorithm. As implemented here it uses a 12 bit index into the
  * sliding window, and a 4 bit length, which is adjusted to reflect phrase
  * lengths of between 3 and 18 bytes.
- *
- * WARNING: Check with the legal department before making any changes to
- *          the algorithms used herein in order to ensure that the code
- *          doesn't infrige on the multiple gratuitous patents on
- *          compression code.
  */
 
 
 /*****************************************************************************/
+
+#define INDEX_BIT_COUNT  12
+#define LENGTH_BIT_COUNT 4
+#define WINDOW_SIZE      (1 << INDEX_BIT_COUNT)
+#define BREAK_EVEN       2
+#define END_OF_STREAM    0
+#define MOD_WINDOW(a)    ((a) & (WINDOW_SIZE - 1))
+
+#define LOOK_AHEAD_SIZE  ((1 << LENGTH_BIT_COUNT) + BREAK_EVEN)
+#define TREE_ROOT        WINDOW_SIZE
+#define UNUSED           0
+
+#define COMP_TRUE        1
+#define COMP_FALSE       0
+
+typedef signed int int32_t;
+typedef unsigned int uint32_t;
+typedef unsigned char uint8_t;
 
 /*
  * The tree[] structure contains the binary tree of all of the strings in the
  * window sorted in order.
  */
-struct CompNode
+typedef struct CompNode
 {
   uint32_t cn_Parent;
   uint32_t cn_LeftChild;
   uint32_t cn_RightChild;
-};
+} CompNode;
 
 typedef void (*CompFuncClone)(void *userData, uint32_t word);
 
@@ -50,7 +60,7 @@ typedef struct CompressBitStream
 /*****************************************************************************/
 
 
-typedef struct Compressor
+struct Compressor
 {
   unsigned char      ch_Window[WINDOW_SIZE];
   CompNode           ch_Tree[WINDOW_SIZE + 1];
@@ -60,15 +70,47 @@ typedef struct Compressor
   uint32_t           ch_CurrentPos;
   uint32_t           ch_ReplaceCnt;
   CompressBitStream  ch_BitStream;
-  bool               ch_SecondPass;
-  bool               ch_AllocatedStructure;
+  int                ch_SecondPass;
+  int                ch_AllocatedStructure;
   void              *ch_Cookie;
-} Compressor;
+};
 
 
 /*****************************************************************************/
 
-typedef void *Decompressor;
+static
+uint32_t
+Byteswap32(uint32_t v)
+{
+  return (((v & 0x000000FFU) << 24) |
+          ((v & 0x0000FF00U) <<  8) |
+          ((v & 0x00FF0000U) >>  8) |
+          ((v & 0xFF000000U) >> 24));
+}
+
+static
+int
+IsLittleEndian(void)
+{
+  union
+  {
+    uint32_t i;
+    char c[sizeof(uint32_t)];
+  } u;
+
+  u.i = 0x01020304U;
+
+  return (u.c[0] == 0x04);
+}
+
+static
+uint32_t
+ByteswapIfLittleEndian(uint32_t v)
+{
+  if(IsLittleEndian())
+    return Byteswap32(v);
+  return v;
+}
 
 /*****************************************************************************/
 
@@ -103,7 +145,7 @@ AddString(CompNode      *tree,
   node     = &tree[newNode];
   matchLen = 0;
 
-  while(true)
+  for(;;)
     {
       for(i = 0; i < LOOK_AHEAD_SIZE; i++)
         {
@@ -182,7 +224,7 @@ CleanupBitStream(CompressBitStream *bs)
 {
   if(bs->bs_BitsLeft != 32)
     (*bs->bs_OutputWord)(bs->bs_UserData,
-                         ::byteswap_if_little_endian(bs->bs_BitBuffer));
+                         ByteswapIfLittleEndian(bs->bs_BitBuffer));
 }
 
 /* This routine outputs a single header bit, followed by numBits of code */
@@ -200,7 +242,7 @@ WriteBits(CompressBitStream *bs,
     {
       numBits         -= bs->bs_BitsLeft;
       (*bs->bs_OutputWord)(bs->bs_UserData,
-                           byteswap_if_little_endian(((code >> numBits) | bs->bs_BitBuffer)));
+                           ByteswapIfLittleEndian(((code >> numBits) | bs->bs_BitBuffer)));
       bs->bs_BitsLeft  = 32 - numBits;
 
       if(!numBits)
@@ -287,7 +329,7 @@ CreateCompressor(Compressor **comp,
                  void        *workbuf_,
                  void        *userdata_)
 {
-  bool  allocated;
+  int   allocated;
   void *buffer;
   void *userData;
 
@@ -302,14 +344,14 @@ CreateCompressor(Compressor **comp,
   buffer   = workbuf_;
   userData = userdata_;
 
-  allocated = false;
+  allocated = COMP_FALSE;
   if(!buffer)
     {
       buffer = malloc(sizeof(Compressor));
       if(!buffer)
         return COMP_ERR_NOMEM;
 
-      allocated = true;
+      allocated = COMP_TRUE;
     }
 
   (*comp)                        = (Compressor*)buffer;
@@ -318,7 +360,7 @@ CreateCompressor(Compressor **comp,
   (*comp)->ch_MatchPos           = 0;
   (*comp)->ch_MatchLen           = 0;
   (*comp)->ch_ReplaceCnt         = 0;
-  (*comp)->ch_SecondPass         = false;
+  (*comp)->ch_SecondPass         = COMP_FALSE;
   (*comp)->ch_Cookie             = *comp;
   (*comp)->ch_AllocatedStructure = allocated;
 
@@ -422,7 +464,7 @@ DeleteCompressor(Compressor *comp)
 int
 FeedCompressor(Compressor *comp,
                void       *data,
-               uint32_t    numDataWords)
+               unsigned int numDataWords)
 {
   int32_t            lookAhead;
   uint32_t           currentPos;
@@ -469,7 +511,7 @@ FeedCompressor(Compressor *comp,
     }
 
   lookAhead--;
-  while(true)
+  for(;;)
     {
       if(matchLen > lookAhead)
         matchLen = lookAhead;
@@ -502,7 +544,7 @@ FeedCompressor(Compressor *comp,
               comp->ch_MatchLen   = matchLen;
               comp->ch_MatchPos   = matchPos;
               comp->ch_ReplaceCnt = replaceCnt;
-              comp->ch_SecondPass = true;
+              comp->ch_SecondPass = COMP_TRUE;
               return (0);
             }
         newData:
@@ -517,45 +559,49 @@ FeedCompressor(Compressor *comp,
     }
 }
 
-struct Context
+typedef struct Context
 {
   uint32_t *dest;
   uint32_t *max;
-  bool      overflow;
-};
+  int       overflow;
+} Context;
 
 static
 void
-PutWord(Context  *ctx_,
+PutWord(void     *ctx__,
         uint32_t  word_)
 {
+  Context *ctx_;
+
+  ctx_ = (Context*)ctx__;
+
   if(ctx_->dest >= ctx_->max)
-    ctx_->overflow = true;
+    ctx_->overflow = COMP_TRUE;
   else
     *ctx_->dest++ = word_;
 }
 
-int32_t
-GetCompressorWorkBufferSize()
+int
+GetCompressorWorkBufferSize(void)
 {
   return sizeof(Compressor);
 }
 
 int
-SimpleCompress(void     *source_,
-               uint32_t  sourceWords_,
-               void     *result_,
-               uint32_t  resultWords_)
+SimpleCompress(void         *source_,
+               unsigned int  sourceWords_,
+               void         *result_,
+               unsigned int  resultWords_)
 {
   int err;
   Compressor *comp;
   Context ctx;
 
   ctx.dest = (uint32_t*)result_;
-  ctx.max  = (uint32_t*)((uint64_t)result_ + resultWords_ * sizeof(uint32_t));
-  ctx.overflow = false;
+  ctx.max  = ctx.dest + resultWords_;
+  ctx.overflow = COMP_FALSE;
 
-  err = CreateCompressor(&comp,(CompFunc)PutWord,NULL,(void*)&ctx);
+  err = CreateCompressor(&comp,PutWord,NULL,(void*)&ctx);
   if(err < 0)
     return err;
 
@@ -567,7 +613,7 @@ SimpleCompress(void     *source_,
       if(ctx.overflow)
         err = COMP_ERR_OVERFLOW;
       else
-        err = ((uint64_t)ctx.dest - (uint64_t)result_) / sizeof(uint32_t);
+        err = ctx.dest - (uint32_t*)result_;
     }
 
   return err;

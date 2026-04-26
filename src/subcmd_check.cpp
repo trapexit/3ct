@@ -1,6 +1,6 @@
 #include "subcmd_check.hpp"
 
-#include "compress.hpp"
+#include "compress.h"
 #include "decompress.hpp"
 #include "fmt.hpp"
 #include "ggc.h"

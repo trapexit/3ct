@@ -1,5 +1,5 @@
 #include "CLI11.hpp"
-#include "compress.hpp"
+#include "compress.h"
 #include "fmt.hpp"
 #include "options.hpp"
 #include "subcmd_check.hpp"

@@ -1,6 +1,6 @@
 #include "subcmd_compress.hpp"
 
-#include "compress.hpp"
+#include "compress.h"
 #include "fmt.hpp"
 
 #include <errno.h>
