@@ -778,6 +778,9 @@ ggc_decompress(const unsigned char  *src,
 
   output_size = ((size_t)src[GGC_HEADER_SIZE_OFFSET] << GGC_BYTE_BITS) |
                 src[GGC_HEADER_SIZE_OFFSET + 1];
+  if(output_size != 0 && src_size == GGC_HEADER_SIZE)
+    return GGC_ERR_TRUNCATED;
+
   out = (unsigned char *)malloc(output_size ? output_size : 1);
   if(out == NULL)
     return GGC_ERR_NOMEM;

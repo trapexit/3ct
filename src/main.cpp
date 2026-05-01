@@ -165,10 +165,12 @@ main(int    argc_,
   catch(const std::system_error &e_)
     {
       fmt::print("{} ({})\n",e_.what(),e_.code().message());
+      return 1;
     }
   catch(const std::runtime_error &e_)
     {
       fmt::print("{}\n",e_.what());
+      return 1;
     }
 
   return 0;
