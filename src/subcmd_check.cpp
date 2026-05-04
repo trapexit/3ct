@@ -479,6 +479,51 @@ namespace l
 
   static
   void
+  check_ggc_truncated_final_symbol()
+  {
+    int rv;
+    unsigned char file_type[4] = {' ',' ',' ',' '};
+    const unsigned char input[1] = {0x41};
+    unsigned char *compressed_data;
+    size_t compressed_data_len;
+    unsigned char *decompressed_data;
+    size_t decompressed_data_len;
+
+    compressed_data = NULL;
+    compressed_data_len = 0;
+    rv = ggc_compress(input,
+                      sizeof(input),
+                      file_type,
+                      &compressed_data,
+                      &compressed_data_len);
+    check_ggc_result(rv);
+    if(compressed_data_len < 2)
+      {
+        ggc_free(compressed_data);
+        throw std::runtime_error("GGC compression failed - too short");
+      }
+
+    decompressed_data = NULL;
+    decompressed_data_len = 0;
+    rv = ggc_decompress(compressed_data,
+                        compressed_data_len - 1,
+                        &decompressed_data,
+                        &decompressed_data_len);
+    if(rv != GGC_ERR_TRUNCATED)
+      {
+        if(rv == GGC_OK)
+          ggc_free(decompressed_data);
+        ggc_free(compressed_data);
+        throw std::runtime_error("GGC decompression failed - accepted truncated final symbol");
+      }
+
+    ggc_free(compressed_data);
+
+    fmt::print("* 3ct GGC decompressor rejects truncated final symbols\n");
+  }
+
+  static
+  void
   check_ggc_compression()
   {
     int rv;
@@ -513,4 +558,5 @@ SubCmd::check()
   l::check_decompression();
   l::check_ggc_compression();
   l::check_ggc_decompression();
+  l::check_ggc_truncated_final_symbol();
 }

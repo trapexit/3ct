@@ -14,7 +14,6 @@ STRIP := $(COMPILER_PREFIX)-strip
 
 ifeq ($(NDEBUG),1)
 OPT := -O3 -flto -static
-LDFLAGS += -Wl,--strip-all
 else
 OPT := -O0 -ggdb -ftrapv
 endif
@@ -60,27 +59,27 @@ builddir:
 	mkdir -p $(BUILDDIR)
 
 release-base: clean
-	$(MAKE) NDEBUG=1 -j$(JOBS) TARGET="$(shell uname -m)-$(shell uname -s | tr '[:upper:]' '[:lower:]')"
+	$(MAKE) NDEBUG=1 -j$(JOBS) TARGET="$(shell uname -m)-$(shell uname -s | tr '[:upper:]' '[:lower:]')" strip
 	$(MAKE) NDEBUG=1 -j$(JOBS) \
 		CC="zig cc -target x86_64-linux-musl" \
 		CXX="zig c++ -target x86_64-linux-musl" \
 		STRIP="zig llvm-strip" \
-		TARGET="x86_64-linux-musl"
+		TARGET="x86_64-linux-musl" strip
 	$(MAKE) NDEBUG=1 -j$(JOBS) \
 		CC="zig cc -target aarch64-linux-musl" \
 		CXX="zig c++ -target aarch64-linux-musl" \
 		STRIP="zig llvm-strip" \
-		TARGET="aarch64-linux-musl"
+		TARGET="aarch64-linux-musl" strip
 	$(MAKE) NDEBUG=1 -j$(JOBS) \
 		CC="zig cc -target x86_64-windows-gnu" \
 		CXX="zig c++ -target x86_64-windows-gnu" \
 		STRIP="zig llvm-strip" \
-		TARGET="x86_64-windows-gnu.exe"
+		TARGET="x86_64-windows-gnu.exe" strip
 	$(MAKE) NDEBUG=1 -j$(JOBS) \
 		CC="zig cc -target aarch64-macos" \
 		CXX="zig c++ -target aarch64-macos" \
 		STRIP="zig llvm-strip" \
-		TARGET="aarch64-macos" OPT="-O3"
+		TARGET="aarch64-macos" OPT="-O3" strip
 
 release:
 	podman build -t localhost/cxxbuilder buildtools/

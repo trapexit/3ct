@@ -79,6 +79,7 @@ struct GGCDecoder
   size_t src_size;
   size_t src_pos;
   int underflow;
+  int valid_bit_count;
   unsigned short bit_buf;
   int bit_count;
   unsigned char text_buf[GGC_N + GGC_F - 1];
@@ -307,11 +308,9 @@ unsigned char
 ggc_decoder_get_byte(GGCDecoder *d)
 {
   if(d->src_pos >= d->src_size)
-    {
-      d->underflow = 1;
-      return 0;
-    }
+    return 0;
 
+  d->valid_bit_count += GGC_BYTE_BITS;
   return (unsigned char)(d->src[d->src_pos++] ^ GGC_BYTE_MASK);
 }
 
@@ -326,6 +325,11 @@ ggc_decoder_get_bit(GGCDecoder *d)
       d->bit_buf = (unsigned short)(d->bit_buf | (ggc_decoder_get_byte(d) << (GGC_BYTE_BITS - d->bit_count)));
       d->bit_count += GGC_BYTE_BITS;
     }
+
+  if(d->valid_bit_count == 0)
+    d->underflow = 1;
+  else
+    d->valid_bit_count--;
 
   bit = (d->bit_buf & GGC_WORD_HIGH_BIT) ? 1 : 0;
   d->bit_buf = (unsigned short)(d->bit_buf << 1);
@@ -345,6 +349,14 @@ ggc_decoder_get_byte_bits(GGCDecoder *d)
       d->bit_buf = (unsigned short)(d->bit_buf | (ggc_decoder_get_byte(d) << (GGC_BYTE_BITS - d->bit_count)));
       d->bit_count += GGC_BYTE_BITS;
     }
+
+  if(d->valid_bit_count < GGC_BYTE_BITS)
+    {
+      d->underflow = 1;
+      d->valid_bit_count = 0;
+    }
+  else
+    d->valid_bit_count -= GGC_BYTE_BITS;
 
   value = (unsigned char)(d->bit_buf >> GGC_BYTE_BITS);
   d->bit_buf = (unsigned short)(d->bit_buf << GGC_BYTE_BITS);
@@ -824,7 +836,7 @@ ggc_decompress(const unsigned char  *src,
             }
         }
 
-      if(d.underflow && (out_pos < output_size))
+      if(d.underflow)
         {
           free(out);
           return GGC_ERR_TRUNCATED;
