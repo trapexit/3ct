@@ -25,24 +25,38 @@ namespace
     if(f == NULL)
       throw fmt::exception("ERROR: failed to open {} - {}",path_,strerror(errno));
 
-    fseek(f,0L,SEEK_END);
-    size = ftell(f);
-    fseek(f,0L,SEEK_SET);
+    if(fseek(f,0L,SEEK_END) != 0)
+      {
+        int err = errno ? errno : EIO;
+        fclose(f);
+        throw fmt::exception("ERROR: failed to seek {} - {}",path_,strerror(err));
+      }
 
+    size = ftell(f);
     if(size < 0)
       {
+        int err = errno ? errno : EIO;
         fclose(f);
-        throw fmt::exception("ERROR: failed to size {}",path_);
+        throw fmt::exception("ERROR: failed to size {} - {}",path_,strerror(err));
+      }
+
+    if(fseek(f,0L,SEEK_SET) != 0)
+      {
+        int err = errno ? errno : EIO;
+        fclose(f);
+        throw fmt::exception("ERROR: failed to seek {} - {}",path_,strerror(err));
       }
 
     data.resize(static_cast<std::size_t>(size));
     if(!data.empty() && fread(data.data(),1,data.size(),f) != data.size())
       {
+        int err = ferror(f) ? (errno ? errno : EIO) : EIO;
         fclose(f);
-        throw fmt::exception("ERROR: failed to read {}",path_);
+        throw fmt::exception("ERROR: failed to read {} - {}",path_,strerror(err));
       }
 
-    fclose(f);
+    if(fclose(f) != 0)
+      throw fmt::exception("ERROR: failed to close {} - {}",path_,strerror(errno ? errno : EIO));
 
     return data;
   }
@@ -59,11 +73,13 @@ namespace
 
     if(!data_.empty() && fwrite(data_.data(),1,data_.size(),f) != data_.size())
       {
+        int err = errno ? errno : EIO;
         fclose(f);
-        throw fmt::exception("ERROR: failed to write {}",path_);
+        throw fmt::exception("ERROR: failed to write {} - {}",path_,strerror(err));
       }
 
-    fclose(f);
+    if(fclose(f) != 0)
+      throw fmt::exception("ERROR: failed to close {} - {}",path_,strerror(errno ? errno : EIO));
   }
 
   std::vector<uint8_t>

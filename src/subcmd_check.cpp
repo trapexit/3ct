@@ -485,6 +485,70 @@ namespace l
 
   static
   void
+  check_decompression_requires_eos()
+  {
+    int rv;
+    uint32_t word;
+    Decompressor *decomp;
+    std::vector<uint32_t> local_uncompressed_data;
+
+    word = 0xffffffffU;
+    rv = CreateDecompressor(&decomp,
+                            (CompFunc)l::write_word,
+                            NULL,
+                            (void*)&local_uncompressed_data);
+    if(rv < 0)
+      throw std::runtime_error("CreateDecompressor failed");
+
+    rv = FeedDecompressor(decomp,&word,1);
+    check_comp_result(rv,"FeedDecompressor");
+
+    rv = DeleteDecompressor(decomp);
+    if(rv != COMP_ERR_DATAMISSING)
+      throw std::runtime_error("3ct decompressor accepted stream without end marker");
+
+    fmt::print("* 3ct decompressor rejects streams without end marker\n");
+  }
+
+  static
+  void
+  check_decompression_initializes_workbuf()
+  {
+    static const unsigned char compressed_initial_window_ref[] =
+      {
+        0x00, 0x08, 0x80, 0x00
+      };
+    int rv;
+    uint32_t word;
+    Decompressor *decomp;
+    std::vector<uint8_t> workbuf;
+    std::vector<uint32_t> local_uncompressed_data;
+
+    workbuf.resize(GetDecompressorWorkBufferSize());
+    memset(workbuf.data(),0xff,workbuf.size());
+
+    rv = CreateDecompressor(&decomp,
+                            (CompFunc)l::write_word,
+                            workbuf.data(),
+                            (void*)&local_uncompressed_data);
+    if(rv < 0)
+      throw std::runtime_error("CreateDecompressor failed");
+
+    word = read_word(compressed_initial_window_ref,0);
+    rv = FeedDecompressor(decomp,&word,1);
+    check_comp_result(rv,"FeedDecompressor");
+
+    rv = DeleteDecompressor(decomp);
+    check_comp_result(rv,"DeleteDecompressor");
+
+    if((local_uncompressed_data.size() != 1) || (local_uncompressed_data[0] != 0))
+      throw std::runtime_error("3ct decompressor did not initialize external work buffer");
+
+    fmt::print("* 3ct decompressor initializes external work buffers\n");
+  }
+
+  static
+  void
   check_ggc_decompression()
   {
     int rv;
@@ -591,6 +655,8 @@ SubCmd::check()
 {
   l::check_compression();
   l::check_decompression();
+  l::check_decompression_requires_eos();
+  l::check_decompression_initializes_workbuf();
   l::check_ggc_compression();
   l::check_ggc_decompression();
   l::check_ggc_truncated_final_symbol();

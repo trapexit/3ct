@@ -58,6 +58,9 @@ $(BUILDDIR)/%.cpp.o: src/%.cpp
 clean:
 	rm -rfv build/
 
+test: $(OUTPUT)
+	$(OUTPUT) check
+
 distclean: clean
 	git clean -fdx
 
@@ -95,6 +98,6 @@ release:
 		-e ZIG_LOCAL_CACHE_DIR=/tmp/zig-local-cache \
 		-v ${PWD}:/src:Z localhost/cxxbuilder "/src/buildtools/podman-make-release"
 
-.PHONY: clean distclean builddir release podman-release
+.PHONY: clean distclean builddir release release-base test
 
 -include $(DEPS)

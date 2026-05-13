@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 
 /*****************************************************************************/
 
@@ -44,6 +45,7 @@ typedef struct Decompressor
   uint32_t             dh_Pos;
   unsigned char        dh_Window[WINDOW_SIZE];
   DecompressBitStream  dh_BitStream;
+  bool                 dh_Finished;
   bool                 dh_AllocatedStructure;
   void                *dh_Cookie;
 } Decompressor;
@@ -54,6 +56,8 @@ typedef struct Decompressor
 
 static void InitBitStream(DecompressBitStream *bs)
 {
+  bs->bs_Data      = NULL;
+  bs->bs_NumDataWords = 0;
   bs->bs_BitsLeft  = 0;
   bs->bs_BitBuffer = 0;
   bs->bs_Error     = false;
@@ -117,7 +121,8 @@ static
 int
 internalFeedDecompressor(Decompressor *decomp,
                          void         *data,
-                         uint32_t      numDataWords)
+                         uint32_t      numDataWords,
+                         bool          final)
 {
   uint32_t       i;
   uint32_t       pos;
@@ -127,6 +132,7 @@ internalFeedDecompressor(Decompressor *decomp,
   DecompressBitStream     *bs;
   uint32_t       wordBuffer;
   uint32_t       bytesLeft;
+  bool           finished;
   CompFunc       cf;
   unsigned char *window;
   void          *userData;
@@ -138,14 +144,24 @@ internalFeedDecompressor(Decompressor *decomp,
   userData   = decomp->dh_UserData;
   bs         = &decomp->dh_BitStream;
   pos        = decomp->dh_Pos;
+  finished   = decomp->dh_Finished;
 
   FeedBitStream(bs, data, numDataWords);
 
-  while (bs->bs_NumDataWords)
+  while (!finished)
     {
+      if(!final && !bs->bs_NumDataWords)
+        break;
+
       if (ReadBits(bs,1))
         {
+          if(bs->bs_Error)
+            break;
+
           c = ReadBits(bs, 8);
+          if(bs->bs_Error)
+            break;
+
           if (bytesLeft == 0)
             {
               (*cf)(userData,::byteswap_if_little_endian(wordBuffer));
@@ -163,11 +179,22 @@ internalFeedDecompressor(Decompressor *decomp,
         }
       else
         {
-          matchPos = ReadBits(bs, INDEX_BIT_COUNT);
-          if (matchPos == END_OF_STREAM)
+          if(bs->bs_Error)
             break;
 
+          matchPos = ReadBits(bs, INDEX_BIT_COUNT);
+          if(bs->bs_Error)
+            break;
+
+          if (matchPos == END_OF_STREAM)
+            {
+              finished = true;
+              break;
+            }
+
           matchLen = ReadBits(bs, LENGTH_BIT_COUNT) + BREAK_EVEN;
+          if(bs->bs_Error)
+            break;
 
           for (i = matchPos; i <= matchLen + matchPos; i++)
             {
@@ -194,6 +221,7 @@ internalFeedDecompressor(Decompressor *decomp,
   decomp->dh_BytesLeft  = bytesLeft;
   decomp->dh_WordBuffer = wordBuffer;
   decomp->dh_Pos        = pos;
+  decomp->dh_Finished   = finished;
 
   return (0);
 }
@@ -236,12 +264,15 @@ CreateDecompressor(Decompressor **decomp,
       allocated = true;
     }
 
+  memset(buffer,0,sizeof(Decompressor));
+
   (*decomp)                        = (Decompressor *)buffer;
   (*decomp)->dh_OutputWord         = cf;
   (*decomp)->dh_UserData           = userData;
   (*decomp)->dh_WordBuffer         = 0;
   (*decomp)->dh_BytesLeft          = 4;
   (*decomp)->dh_Pos                = 1;
+  (*decomp)->dh_Finished           = false;
   (*decomp)->dh_Cookie             = *decomp;
   (*decomp)->dh_AllocatedStructure = allocated;
   InitBitStream(&(*decomp)->dh_BitStream);
@@ -261,18 +292,21 @@ DeleteDecompressor(Decompressor *decomp)
   if (!decomp || (decomp->dh_Cookie != decomp))
     return (COMP_ERR_BADPTR);
 
-  decomp->dh_Cookie = NULL;
-
   result = 0;
 
-  if (decomp->dh_BytesLeft == 0)
+  if(!decomp->dh_Finished)
+    internalFeedDecompressor(decomp,NULL,0,true);
+
+  decomp->dh_Cookie = NULL;
+
+  if (decomp->dh_Finished && !decomp->dh_BitStream.bs_Error && decomp->dh_BytesLeft == 0)
     (*decomp->dh_OutputWord)(decomp->dh_UserData,
                              ::byteswap_if_little_endian(decomp->dh_WordBuffer));
 
   if (decomp->dh_BitStream.bs_NumDataWords)
     result = COMP_ERR_DATAREMAINS;
 
-  if (decomp->dh_BitStream.bs_Error)
+  if (decomp->dh_BitStream.bs_Error || !decomp->dh_Finished)
     result = COMP_ERR_DATAMISSING;
 
   if (decomp->dh_AllocatedStructure)
@@ -290,7 +324,7 @@ int FeedDecompressor(Decompressor *decomp, void *data, uint32_t numDataWords)
   if (!decomp || (decomp->dh_Cookie != decomp))
     return (COMP_ERR_BADPTR);
 
-  return (internalFeedDecompressor(decomp, data, numDataWords));
+  return (internalFeedDecompressor(decomp, data, numDataWords, false));
 }
 
 

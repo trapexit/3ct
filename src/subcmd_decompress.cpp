@@ -132,11 +132,13 @@ namespace l
   {
     int rv;
     bool read_failed;
+    bool partial_word;
     int read_errno;
     Decompressor *decomp;
 
     decomp = NULL;
     read_failed = false;
+    partial_word = false;
     read_errno = 0;
 
     rv = CreateDecompressor(&decomp,(CompFunc)l::write_word,NULL,(void*)dst_);
@@ -160,9 +162,6 @@ namespace l
             break;
           }
 
-        rv = FeedDecompressor(decomp,&w,1);
-        check_result(rv,"FeedDecompressor");
-
         if(bytes_read < sizeof(w))
           {
             if(ferror(src_))
@@ -170,15 +169,24 @@ namespace l
                 read_failed = true;
                 read_errno = errno ? errno : EIO;
               }
+            else
+              partial_word = true;
             break;
           }
+
+        rv = FeedDecompressor(decomp,&w,1);
+        check_result(rv,"FeedDecompressor");
       }
 
     rv = DeleteDecompressor(decomp);
-    check_result(rv,"DeleteDecompressor");
 
     if(read_failed)
       throw fmt::exception("ERROR: failed to read {} - {}",src_path_,strerror(read_errno));
+
+    if(partial_word)
+      throw fmt::exception("ERROR: input file {} ended with a partial 32-bit word",src_path_);
+
+    check_result(rv,"DeleteDecompressor");
 
     check_write(*dst_,dst_path_);
   }
@@ -204,16 +212,16 @@ SubCmd::decompress(Options const &opts_)
     }
 
   src = l::open_file(src_filepath,"rb");
+  src_file_size = l::file_size(src.get(),src_filepath);
+  if(!l::multiple_of_4(src_file_size))
+    throw fmt::exception("ERROR: input file {} is not a multiple of 4 bytes; "
+                         "file may be truncated or not a 3DO compressed file",
+                         src_filepath);
+
   dst = l::open_file(dst_filepath,"wb");
   output.f = dst.get();
   output.write_failed = false;
   output.write_errno = 0;
-
-  src_file_size = l::file_size(src.get(),src_filepath);
-  if(!l::multiple_of_4(src_file_size))
-    fmt::print(stderr,
-               "WARNING - input file is not a multiple of 4 bytes. "
-               "The file may be corrupted or not a 3DO compressed file.\n");
 
   l::decompress(src.get(),&output,src_filepath,dst_filepath);
 
