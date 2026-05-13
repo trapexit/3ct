@@ -380,6 +380,15 @@ namespace l
 
   static
   void
+  check_comp_result(int rv_,
+                    const char *operation_)
+  {
+    if(rv_ < 0)
+      throw fmt::exception("{} failed ({})",operation_,rv_);
+  }
+
+  static
+  void
   write_word(void     *buf_,
              uint32_t  word_)
   {
@@ -389,11 +398,22 @@ namespace l
   }
 
   static
+  uint32_t
+  read_word(const unsigned char *data_,
+            unsigned             word_index_)
+  {
+    uint32_t word;
+
+    memcpy(&word,data_ + (word_index_ * sizeof(word)),sizeof(word));
+
+    return word;
+  }
+
+  static
   void
   check_compression()
   {
     int rv;
-    uint32_t *words;
     Compressor *comp;
     std::vector<uint32_t> local_compressed_data;
 
@@ -404,18 +424,26 @@ namespace l
     if(rv < 0)
       throw std::runtime_error("CreateCompressor failed");
 
-    words = (uint32_t*)uncompressed_data;
     for(unsigned i = 0; i < (uncompressed_data_len / sizeof(uint32_t)); ++i)
-      FeedCompressor(comp,&words[i],1);
+      {
+        uint32_t word;
+
+        word = read_word(uncompressed_data,i);
+        rv = FeedCompressor(comp,&word,1);
+        check_comp_result(rv,"FeedCompressor");
+      }
 
     rv = DeleteCompressor(comp);
+    check_comp_result(rv,"DeleteCompressor");
+
+    if(local_compressed_data.size() * sizeof(uint32_t) != compressed_data_len)
+      throw std::runtime_error("3ct compressor output length does not match SDK");
 
     rv = memcmp(local_compressed_data.data(),compressed_data,compressed_data_len);
+    if(rv != 0)
+      throw std::runtime_error("3ct compressor output bytes do not match SDK");
 
-    if(rv == 0)
-      fmt::print("* output of 3ct compressor matches SDK\n");
-    else
-      fmt::print("* output of 3ct compressor does NOT match SDK");
+    fmt::print("* output of 3ct compressor matches SDK\n");
   }
 
   static
@@ -423,7 +451,6 @@ namespace l
   check_decompression()
   {
     int rv;
-    uint32_t *words;
     Decompressor *decomp;
     std::vector<uint32_t> local_uncompressed_data;
 
@@ -432,20 +459,28 @@ namespace l
                             NULL,
                             (void*)&local_uncompressed_data);
     if(rv < 0)
-      throw std::runtime_error("CreateCompressor failed");
+      throw std::runtime_error("CreateDecompressor failed");
 
-    words = (uint32_t*)compressed_data;
     for(unsigned i = 0; i < (compressed_data_len / sizeof(uint32_t)); ++i)
-      FeedDecompressor(decomp,&words[i],1);
+      {
+        uint32_t word;
+
+        word = read_word(compressed_data,i);
+        rv = FeedDecompressor(decomp,&word,1);
+        check_comp_result(rv,"FeedDecompressor");
+      }
 
     rv = DeleteDecompressor(decomp);
+    check_comp_result(rv,"DeleteDecompressor");
+
+    if(local_uncompressed_data.size() * sizeof(uint32_t) != uncompressed_data_len)
+      throw std::runtime_error("3ct decompressor output length does not match SDK");
 
     rv = memcmp(local_uncompressed_data.data(),uncompressed_data,uncompressed_data_len);
+    if(rv != 0)
+      throw std::runtime_error("3ct decompressor output bytes do not match SDK");
 
-    if(rv == 0)
-      fmt::print("* output of 3ct decompressor matches SDK\n");
-    else
-      fmt::print("* output of 3ct decompressor does NOT match SDK");
+    fmt::print("* output of 3ct decompressor matches SDK\n");
   }
 
   static

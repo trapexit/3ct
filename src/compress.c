@@ -385,6 +385,7 @@ CreateCompressor(Compressor **comp,
   /* To make the tree usable, everything must be set to UNUSED, and a
    * single phrase has to be added to the tree so it has a root node.
    */
+  memset((*comp)->ch_Window, 0, sizeof((*comp)->ch_Window));
   memset((*comp)->ch_Tree, UNUSED, sizeof((*comp)->ch_Tree));
   (*comp)->ch_Tree[TREE_ROOT].cn_RightChild = 1;
   (*comp)->ch_Tree[1].cn_Parent             = TREE_ROOT;
